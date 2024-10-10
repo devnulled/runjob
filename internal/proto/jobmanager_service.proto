@@ -9,9 +9,8 @@ package jobmanager;
 //
 // JobManager
 //
-// A JobManager is the service on the server responsible for requesting/managing running jobs
+// The JobManager is the service on the server responsible for starting/managing/stopping running jobs
 //
-
 service JobManager {
     rpc Start(JobStartRequest) returns (JobStartResponse);
     rpc Stop(JobStopRequest) returns (JobStopResponse);
@@ -41,8 +40,6 @@ message JobStreamRequest {
 
 message JobStreamResponse {
     bytes response = 1;
-
-
 }
 
 message JobStartRequest {
@@ -53,38 +50,8 @@ message JobStartRequest {
 
     // Arguments to the program to be executed
     repeated string args = 2;
-
-    // Resources to be applied to the job
-    JobResources resources = 3;
 }
 
-
-//
-// JobResources
-//
-// The resources specified to execute processes for a job.
-// If a job exceeds these, they might be killed by the kernel.
-//
-message JobResources {
-    // CPU limit in milli. 1000 = 1 CPU
-    uint32 cpu_limit = 1;
-
-    // Memory limit in bytes.
-    uint64 memory_limit = 2;
-
-    // Should network access be enabled
-    // By default, processes run in an isolated network namespace
-    bool network_enabled = 3;
-
-    // Limit max read IO operations per second
-    uint64 iops_limit= 4;
-
-    //TODO: Support read/write iops separately
-    reserved "iops_read_limit", "iops_write_limit";
-
-    //TODO: Support Max read/write BPS
-    reserved "ibps_read_limit", "ibps_write_limit";
-}
 
 message JobStartResponse {
     // Returns a UUID representing the Job created

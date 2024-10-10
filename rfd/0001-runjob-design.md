@@ -37,7 +37,7 @@ As this is more of a basic functional product rather than a full production-leve
 
 Jobs are defined as an arbitrary process a user wants to run on a host server, which the host server executes and manages.
 
-The library will abstract and implement all of the functionality for starting jobs and isolating them from other processes.
+The library will abstract and implement all of the functionality for starting jobs and isolating them from other processes, detecting when they have completed or crashed, and stopping them.
 
 
 ### RunJob Library
@@ -53,7 +53,7 @@ The library will be built as an independent composition of functionality around 
 
 The library will use its own executable `jobrunner` as a child process to set up the namespaces and resource limits and then execute the requested command. This is to circumvent issues around forking in Go.
 
-The library returns a `JobRunnerID` after starting a Job, which will be used only for internal tracking.
+After starting a Job, the library returns a `JobRunnerID`, which will be used only for internal tracking.
 
 In the future library could be updated to use more cgroup v2 options such as reserving
 
@@ -86,11 +86,11 @@ As a high-level overview, it will support the following requests in the initial 
 - Status - Retrieve the status of an existing job
 - Stream - Stream the output back from a running job
 
-Users can only perform operations on the Jobs that they have started and have a valid JobID for.
+Users can only perform operations on the Jobs they have started and have a valid JobID.
 
 In a future version of the product, this could support a List method to list all running processes for a given user, all system processes for a monitoring/sysadmin type user, etc.
 
-Also, a way to start a process but stay connected to the server and receive the streamed output instead of needing to make a second call with the JobId to see the output.
+Also, a way to start a process but stay connected to the server and receive the streamed output instead of making a second call with the JobId to see the output.
 
 #### Server Job State Management
 
@@ -151,11 +151,6 @@ Flags:
       --cert-ca-path="certs/cert-ca.crt"      Path to CA cert file for authenticating server
       --tls-cert-path="certs/user-tls.crt"    Path to TLS user cert file
       --tls-key-path="certs/user-tls.key"     Path to TLS user key file
-      --cpu-limit=1000                        Limit of CPU usage allowed in millis. 1000 = 1 CPU
-      --memory-limit=268435456                Limit of memory allowed in bytes
-      --process-limit=5                       Maximum number of child processes allowed
-      --enable-network                        Enable network access for the process
-      --iops-limit=900000000                  Maximum number of read/write IO per second
   -A, --command-args=COMMAND-ARGS,...         Arguments to the command being ran
 ```
 
@@ -174,16 +169,9 @@ $ runjob start "/bin/bash" \
 
 ### Job Resource Limits
 
-Resource limits must be specified when creating a job. To be explicit, these are limits rather than allocations.
+Resource limits will be set and hardcoded per job. To be explicit, these are limits rather than allocations.
 
 These limits will be implemented in the library, using the Linux cgroup v2 functionality, which will use its nomenclature for specifying limits.
-
-- CPU Time - in Millis; 1000 millis = 1 CPU
-- Memory Limit - in bytes
-- Max Processes - the number of processes a parent process can fork
-- IOPS - the number of read and write operations per second
-
-In the future, IOPS should be more granular to support separate configurations for read, write, and the read/write BPS instead of just the number of operations.
 
 There will not be any limits on the number of jobs a user can run, how many resources they use, etc.  Nor will there be any support for process monitoring or restarting.  At least some basic level of not allowing more than `n` processes per user seems like an important feature to implement in the next release.
 
@@ -195,13 +183,15 @@ Each Job will run in its own PID and mount namespace.  This ensures that it only
 
 By default, each Job will also have its own network namespace to prevent sending or receiving traffic across the Internet or local network.  This ensures a user can only run a random process and not import from nor export any data to other network and internet resources.
 
-A user will be able to specify that networking is enabled for a job. If enabled, the Job will then be able to use the same network interface as its parent process.
-
 The functionality of network namespaces should be implemented further in a later version of the product to allow more flexibility, such as allowing a user to define which network interfaces should be in the container.
 
 ### Job Execution
 
-The library will use a separate executable, `jobrunner,` to run the jobs. This runner will circumvent issues with using forking in Go.
+Once the isolation and resource limits have been created, the library will run the requested process defined in the Job.
+
+
+
+
 
 The requested commands must already have the software installed on the server.  No functionality is built around installing new packages or doing a `docker pull`.
 
@@ -213,6 +203,10 @@ The library will stream the combined output of `STDOUT` and `STDERR` of running 
 The server will use a pub/sub model to distribute Jobs' output to clients. Each Job's output will be stored in its own associated buffer, which can then be replayed to one or many Subscribers (clients). The Jobs' buffer will support concurrent reads and writes via a mutex.  Subscribers can be created at any time and will be fed all of the contents in the buffer created since the start of the Job.
 
 No durable storage of jobs or job messages is supported. If the RunJob server crashes or restarts, all output and state of running processes are lost.
+
+### Job Shutdown
+
+
 
 ### Security
 
