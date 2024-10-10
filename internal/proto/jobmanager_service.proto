@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/devnulled/runjob/internal/pb";
+
+package jobmanager;
+
+//
+// JobManager
+//
+// A JobManager is the service on the server responsible for requesting/managing running jobs
+//
+
+service JobManager {
+    rpc Start(JobStartRequest) returns (JobStartResponse);
+    rpc Stop(JobStopRequest) returns (JobStopResponse);
+    rpc Status(JobStatusRequest) returns (JobStatusResponse);
+    rpc Stream(JobStreamRequest) returns (stream JobStreamResponse);
+}
+
+
+message JobStopRequest {
+    // The Job ID to stop
+    string job_id = 1;
+}
+
+message JobStopResponse {}
+
+message JobStatusRequest {
+    string job_id = 1;
+}
+
+message JobStatusResponse {
+    JobStatus status = 1;
+}
+
+message JobStreamRequest {
+    string job_id = 1;
+}
+
+message JobStreamResponse {
+    bytes response = 1;
+
+
+}
+
+message JobStartRequest {
+
+    // Full path to the program to be executed.
+    // Shell env variables such as $PATH are not supported.
+    string command = 1;
+
+    // Arguments to the program to be executed
+    repeated string args = 2;
+
+    // Resources to be applied to the job
+    JobResources resources = 3;
+}
+
+
+//
+// JobResources
+//
+// The resources specified to execute processes for a job.
+// If a job exceeds these, they might be killed by the kernel.
+//
+message JobResources {
+    // CPU limit in milli. 1000 = 1 CPU
+    uint32 cpu_limit = 1;
+
+    // Memory limit in bytes.
+    uint64 memory_limit = 2;
+
+    // Should network access be enabled
+    // By default, processes run in an isolated network namespace
+    bool network_enabled = 3;
+
+    // Limit max read IO operations per second
+    uint64 iops_limit= 4;
+
+    //TODO: Support read/write iops separately
+    reserved "iops_read_limit", "iops_write_limit";
+
+    //TODO: Support Max read/write BPS
+    reserved "ibps_read_limit", "ibps_write_limit";
+}
+
+message JobStartResponse {
+    // Returns a UUID representing the Job created
+    string job_id = 1;
+}
+
+message JobStatus {
+    string job_id = 1;
+    JobState state = 2;
+    google.protobuf.Timestamp timestamp_start = 3;
+    string user = 4;
+    uint32 exit_code = 5;
+}
+
+enum JobState {
+    JOBSTATE_UNKNOWN = 0;
+    JOBSTATE_STARTED = 1;
+    //TODO: Use this state in a future version
+    JOBSTATE_KILLED = 2;
+    JOBSTATE_COMPLETED = 3;
+}
