@@ -246,19 +246,18 @@ The library will utilize the server, `jobmanager serve` to call itself as a proc
 For simplicity, the following terms will be used to describe each process of the process tree:
 
 - `jobmanager` - The parent server process accepting gRPC connections being ran as `jobmanager serve`
-- `runjob` - A child process of `jobmanager` which wraps the user command specified in the Job command by the user. It is invoked by calling `jobmanager runjob`
+- `runjob` - A child process of `jobmanager` which wraps the user command specified in the Job command by the user. It is invoked by calling `jobmanager runjob` from the server itself.
 - command - A child process of `runjob`
 
 This will be the approximate process for executing a Job in the `jobmanager` server:
 
 - The library will call the `jobmanager` executable binary with an alternate mode called `runjob`, using `os/exec.Command()`. It will pass the Job command and command arguments as an argument.
 - The library in the parent `jobmanager` process will also set `SysProcAttr.Pdeathsig = syscall.SIGKILL` on its `runjob` child process.  If the parent server process dies, the kernel will kill the child process and all of it's decendents as the parent process will have orphaned processes.
-- As part of the `exec.Command()`, the library in the `runjob` child process will add process attributes via `syscall.SysProcAttr`for creating new namespaces for PID, mount, and network for the underlying `jobmanager runjob` process being created.
-- The library in the `jobmanager runjob` child process will also use `syscall.SysProcAttr` attributes of `Setpgid: true` to create a new process group for the child process. This will allow the library to more easily manage any processes that this child process creates.
-- The library in the `jobmanager runjob` child process will also set `SysProcAttr.Pdeathsig = syscall.SIGQUIT` so that if the parent process dies without cleaning-up any of its child processes, the kernel will send a `SIGQUIT` signal to the child processes so that they can exit gracefully.
-- `jobmanager runjob` will utilize the library to duplicate `STDERR` to a new file descriptor using `FD_CLOEXEC`. This will cause `STDERR` to close once the Job command is executed.  Closing `STDERR` sets up the Job command to capture `STDOUT` and `STDERR` to the same stream.
-- `jobmanager runjob` will utilize the library to mount a new proc filesystem, and then fork and execute the command and its arguments from the Job
-- `jobmanager runjob` will duplicate `STDERR` to a new file descriptor using `FD_CLOEXEC` to close it once the Job command is executed.  This sets up the Job command to capture `STDOUT` and `STDERR` to the same stream, which is then streamed back to the parent process.
+- As part of the `exec.Command()`, the library in the `runjob` child process will add process attributes via `syscall.SysProcAttr`for creating new namespaces for PID, mount, and network for the underlying `runjob` process being created.
+- The library in the `runjob` child process will also use `syscall.SysProcAttr` attributes of `Setpgid: true` to create a new process group for the child process. This will allow the library to more easily manage any processes that this child process creates.
+- The library in the `runjob` child process will also set `SysProcAttr.Pdeathsig = syscall.SIGQUIT` so that if the parent process dies without cleaning-up any of its child processes, the kernel will send a `SIGQUIT` signal to the child processes so that they can exit gracefully.
+- `runjob` will duplicate `STDERR` to a new file descriptor using `FD_CLOEXEC` to close it once the Job command is executed.  This sets up the Job command to capture `STDOUT` and `STDERR` to the same stream, which is then streamed back to the parent process.
+- `runjob` will utilize the library to mount a new proc filesystem, and then fork and execute the command and its arguments from the Job
 - If the process is launched successfully, the library will return an `io.ReadCloser` which can be read for the combined `STDOUT` and `STDERR` stream.
 
 There might be some other related details to work through while implementing this functionality, but generally speaking, this will be the process for executing jobs.
