@@ -2,7 +2,7 @@ syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/devnulled/runjob/internal/pb";
+option go_package = "github.com/devnulled/runjob/internal/proto";
 
 package jobmanager;
 
@@ -16,6 +16,8 @@ service JobManager {
     rpc Stop(JobStopRequest) returns (JobStopResponse);
     rpc Status(JobStatusRequest) returns (JobStatusResponse);
     rpc Stream(JobStreamRequest) returns (stream JobStreamResponse);
+    // Ping is a simple request just to test connectivity and certifcate validation
+    rpc Ping(PingRequest) returns (PingResponse);
 }
 
 
@@ -72,4 +74,11 @@ enum JobState {
     //TODO: Use this state in a future version
     JOBSTATE_KILLED = 2;
     JOBSTATE_COMPLETED = 3;
+}
+
+message PingRequest {
+}
+
+message PingResponse {
+
 }
