@@ -262,6 +262,7 @@ This will be the approximate process for executing a Job in the `jobmanager` ser
 - The library will call the `jobmanager` executable binary with an alternate mode called `runjob`, using `os/exec.Command()`. It will pass the Job command and command arguments as an argument.
 - The library in the parent `jobmanager` process will also set `SysProcAttr.Pdeathsig = syscall.SIGKILL` on its `runjob` child process.  If the parent server process dies, the kernel will kill the child process and its decendents as the parent process will have orphaned processes.
 - As part of the `exec.Command()`, the library in the `runjob` child process will add process attributes via `syscall.SysProcAttr`for creating new namespaces for PID, mount, and network for the underlying `runjob` process being created.
+- `runjob` will create a base `cgroup` directory for running child processes if it doesn't already exist `/sys/fs/cgroup/runjob`.  Each new cgroup will be setup under this path using it's PID `/sys/fs/cgroup/runjob/$PID`
 - The library in the `runjob` child process will also use `syscall.SysProcAttr` attributes of `Setpgid: true` to create a new process group for the child process. This will allow the library to manage any processes that this child process creates more easily.
 - The library in the `runjob` child process will also set `SysProcAttr.Pdeathsig = syscall.SIGQUIT` so that if the parent process dies without cleaning-up any of its child processes, the kernel will send a `SIGQUIT` signal to the child processes so they can exit gracefully.
 - `runjob` will duplicate `STDERR` to a new file descriptor using `FD_CLOEXEC` to close it once the Job command is executed.  This sets up the Job command to capture `STDOUT` and `STDERR` to the same stream, which is then streamed back to the parent process.
@@ -274,7 +275,52 @@ There might be some other related details to work through while implementing thi
 
 The library will stream the combined output of `STDOUT` and `STDERR` of running processes in an `io.ReadCloser` back to the server. The library and server will be connected to the same pipe created before the `jobmanager runjob` is called to start the requested process.
 
-The server will use a pub/sub model to distribute Jobs' output to clients. Each Job's output will be stored in its own associated buffer, which can then be replayed to one or many Subscribers (clients). The Jobs' buffer will support concurrent reads and writes via a mutex.  Subscribers can be created at any time and will be fed all of the contents in the buffer created since the start of the Job.
+The server will use a pub/sub model to distribute Jobs' output to clients.
+
+This isn't the exact naming and code that will be used, but is a resaonable aproximation to describe how the job output gets persisted and distrubuted from the `jobmanager`.
+
+Each Job's output will be stored in its own associated `SafeBuffer`, which can then be replayed to one or many Subscribers (clients).  It stores the output in a `[]byte` in the SafeBuffer struct, and utilizes a mutex for safe reading/writing, as well as a `sync.Cond` which can be used to distribute new output that has been added from a running process.
+
+```go
+
+type SafeBuffer struct {
+	content []byte
+	mutex   sync.RWMutex
+	cond    *sync.Cond
+	closed  bool
+}
+
+```
+
+The `SafeBuffer` can only be read in chunks and can be iterated through using offsets.  When a reader requests a chunk, it is copied into a new variable, and then the lock is released so that the client being slow to read doesn't effect other clients trying to also read from the buffer.
+
+```go
+// ReadAt reads content from the buffer starting from a given offset.
+func (sb *SafeBuffer) ReadAt(offset int64, chunkSize int) ([]byte, error) {
+	sb.mutex.RLock()
+	defer sb.mutex.RUnlock()
+
+	if int(offset) > len(sb.content) {
+		return nil, ErrOffsetOutsideBounds
+	}
+
+	// Calculate the end index based on chunk size
+	end := int(offset) + chunkSize
+	if end > len(sb.content) {
+		end = len(sb.content)
+	}
+
+	// Copy the chunk to avoid locking during further processing
+	data := make([]byte, end-int(offset))
+	copy(data, sb.content[offset:end])
+
+	return data, nil
+}
+
+```
+I've done some inital testing with 100 readers and 5 writers to this sort of buffer and haven't experienced any dead locks or other types of errors, whereas a `buffer.Buffer` was not suitable when tested in the same manner.
+
+Subscribers can be created at any time and will be fed all of the contents in the buffer created since the start of the Job.
 
 No durable storage of jobs or job messages is supported. If the RunJob server crashes or restarts, all output and state of running processes are lost.
 
