@@ -24,6 +24,10 @@ BUILD_CERTS_CLIENT_NAME?=client
 BUILD_CERTS_CLIENT1_NAME?=client-01
 BUILD_CERTS_CLIENT2_NAME?=client-02
 
+
+BUILD_CLEAN_OPTS:=-i -r -cache -testcache
+BUILD_CLEAN_TEST_OPTS:=${BUILD_CLEAN_OPTS} -n
+
 BUILD_BIN_DEPS := \
 	go\
 	openssl\
@@ -31,8 +35,10 @@ BUILD_BIN_DEPS := \
 	protoc-gen-go\
 	protoc-gen-go-grpc
 
-.PHONY: all deps build certs-clean certs-gen certs-init certs-clean certs-bundle-client certs-bundle-clients certs-gen-ca
-.PHONY: certs-gen-server certs-gen-client certs-gen-clients protoc
+.PHONY: all build clean clean-test
+.PHONY: certs-clean certs-gen certs-init certs-clean certs-bundle-client certs-bundle-clients
+.PHONY: certs-gen-ca certs-gen-server certs-gen-client certs-gen-clients
+.PHONY: clean-deep clean-deep-test deps protoc protoc-install vagrant-init vagrant-up vagrant-ssh test
 
 all: deps build
 
@@ -40,9 +46,32 @@ deps:
 	@for p in $(BUILD_BIN_DEPS); do \
 		$(call fn_bin_is_installed,$$p) || exit 1; \
 	done
-
+# $(shell go list ./...)
 build: deps
-	go build -o bin/ ./...
+	go build -v -o bin/ $(shell go list ./...)
+
+test: deps build
+	go test \
+			-v \
+			-race \
+			-shuffle on \
+			$(shell go list ./...)
+
+test: deps build
+	go test \
+			-v \
+			-race \
+			-shuffle on \
+			$(shell go list ./...)
+
+# TODO
+pprof: deps
+
+clean-deep: deps
+	go clean ${BUILD_CLEAN_OPTS}
+
+clean-deep-test: deps
+	go clean ${BUILD_CLEAN_TEST_OPTS}
 
 protoc: deps
 	protoc \
@@ -51,6 +80,10 @@ protoc: deps
 		--go-grpc_opt=paths=source_relative \
 		--go-grpc_out=. \
 		internal/proto/jobmanager_service.proto
+
+protoc-install:
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 certs-gen: deps certs-clean certs-init certs-gen-ca certs-gen-server certs-gen-client certs-gen-clients certs-bundle-clients
 
